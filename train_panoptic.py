@@ -34,7 +34,7 @@ class MockTorchnet(object):
 tnt = MockTorchnet()
 
 from src import model_utils
-from src.dataset import PASTIS_Dataset, AgricultureVisionDataset
+from src.dataset import PASTIS_Dataset, AgricultureVisionDataset, KomatsunaDataset
 from src.learning.weight_init import weight_init
 from src.panoptic.metrics import PanopticMeter
 from src.panoptic.paps_loss import PaPsLoss
@@ -201,7 +201,7 @@ parser.add_argument(
     "--dataset_type",
     default="pastis",
     type=str,
-    choices=["pastis", "agriculture_vision"],
+    choices=["pastis", "agriculture_vision", "komatsuna"],
     help="Type of dataset to load",
 )
 
@@ -388,7 +388,7 @@ def main(config):
 
     device = torch.device(config.device)
 
-    if config.dataset_type == "agriculture_vision":
+    if config.dataset_type in ["agriculture_vision", "komatsuna"]:
         config.input_dim = 3
     else:
         config.input_dim = 10
@@ -430,6 +430,17 @@ def main(config):
             dt_train = AgricultureVisionDataset(**dt_args, folds=train_folds)
             dt_val = AgricultureVisionDataset(**dt_args, folds=val_fold)
             dt_test = AgricultureVisionDataset(**dt_args, folds=test_fold)
+        elif config.dataset_type == "komatsuna":
+            dt_args = dict(
+                folder=config.dataset_folder,
+                norm=True,
+                reference_date=config.ref_date,
+                mono_date=config.mono_date,
+                target="instance",
+            )
+            dt_train = KomatsunaDataset(**dt_args, folds=train_folds)
+            dt_val = KomatsunaDataset(**dt_args, folds=val_fold)
+            dt_test = KomatsunaDataset(**dt_args, folds=test_fold)
 
         train_loader = data.DataLoader(
             dt_train,

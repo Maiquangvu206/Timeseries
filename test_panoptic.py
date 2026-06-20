@@ -14,7 +14,7 @@ import torch.utils.data as data
 
 from train_panoptic import iterate, save_results
 from src import model_utils
-from src.dataset import PASTIS_Dataset, AgricultureVisionDataset
+from src.dataset import PASTIS_Dataset, AgricultureVisionDataset, KomatsunaDataset
 from src.panoptic.paps_loss import PaPsLoss
 from src.utils import pad_collate
 
@@ -62,7 +62,7 @@ parser.add_argument(
     "--dataset_type",
     default="pastis",
     type=str,
-    choices=["pastis", "agriculture_vision"],
+    choices=["pastis", "agriculture_vision", "komatsuna"],
     help="Type of dataset to load",
 )
 
@@ -111,6 +111,15 @@ def main(config):
                 target="instance",
             )
             dt_test = AgricultureVisionDataset(**dt_args, folds=test_fold)
+        elif config.dataset_type == "komatsuna":
+            dt_args = dict(
+                folder=config.dataset_folder,
+                norm=True,
+                reference_date=config.ref_date,
+                mono_date=config.mono_date,
+                target="instance",
+            )
+            dt_test = KomatsunaDataset(**dt_args, folds=test_fold)
 
         test_loader = data.DataLoader(
             dt_test,
