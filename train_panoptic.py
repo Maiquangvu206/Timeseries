@@ -12,10 +12,29 @@ import time
 import numpy as np
 import torch
 import torch.utils.data as data
-import torchnet as tnt
+class MockAverageValueMeter(object):
+    def __init__(self):
+        self.reset()
+    def reset(self):
+        self.sum = 0
+        self.n = 0
+    def add(self, val, n=1):
+        self.sum += val * n
+        self.n += n
+    def value(self):
+        mean = self.sum / self.n if self.n > 0 else 0
+        return [mean, 0.0]
+
+class MockMeter(object):
+    AverageValueMeter = MockAverageValueMeter
+
+class MockTorchnet(object):
+    meter = MockMeter()
+
+tnt = MockTorchnet()
 
 from src import model_utils
-from src.dataset import PASTIS_Dataset
+from src.dataset import PASTIS_Dataset, AgricultureVisionDataset
 from src.learning.weight_init import weight_init
 from src.panoptic.metrics import PanopticMeter
 from src.panoptic.paps_loss import PaPsLoss
@@ -177,6 +196,13 @@ parser.add_argument(
     dest="cache",
     action="store_true",
     help="If specified, the whole dataset is kept in RAM",
+)
+parser.add_argument(
+    "--dataset_type",
+    default="pastis",
+    type=str,
+    choices=["pastis", "agriculture_vision"],
+    help="Type of dataset to load",
 )
 
 list_args = ["encoder_widths", "decoder_widths", "out_conv"]
@@ -362,6 +388,11 @@ def main(config):
 
     device = torch.device(config.device)
 
+    if config.dataset_type == "agriculture_vision":
+        config.input_dim = 3
+    else:
+        config.input_dim = 10
+
     fold_sequence = [
         [[1, 2, 3], [4], [5]],
         [[2, 3, 4], [5], [1]],
@@ -377,16 +408,28 @@ def main(config):
     for fold, (train_folds, val_fold, test_fold) in enumerate(fold_sequence):
         if config.fold is not None:
             fold = config.fold - 1  # Quick fix to launch different folds simultaneously
-        dt_args = dict(
-            folder=config.dataset_folder,
-            norm=True,
-            reference_date=config.ref_date,
-            mono_date=config.mono_date,
-            target="instance",
-        )
-        dt_train = PASTIS_Dataset(**dt_args, cache=config.cache, folds=train_folds)
-        dt_val = PASTIS_Dataset(**dt_args, folds=val_fold)
-        dt_test = PASTIS_Dataset(**dt_args, folds=test_fold)
+        if config.dataset_type == "pastis":
+            dt_args = dict(
+                folder=config.dataset_folder,
+                norm=True,
+                reference_date=config.ref_date,
+                mono_date=config.mono_date,
+                target="instance",
+            )
+            dt_train = PASTIS_Dataset(**dt_args, cache=config.cache, folds=train_folds)
+            dt_val = PASTIS_Dataset(**dt_args, folds=val_fold)
+            dt_test = PASTIS_Dataset(**dt_args, folds=test_fold)
+        elif config.dataset_type == "agriculture_vision":
+            dt_args = dict(
+                folder=config.dataset_folder,
+                norm=True,
+                reference_date=config.ref_date,
+                mono_date=config.mono_date,
+                target="instance",
+            )
+            dt_train = AgricultureVisionDataset(**dt_args, folds=train_folds)
+            dt_val = AgricultureVisionDataset(**dt_args, folds=val_fold)
+            dt_test = AgricultureVisionDataset(**dt_args, folds=test_fold)
 
         train_loader = data.DataLoader(
             dt_train,

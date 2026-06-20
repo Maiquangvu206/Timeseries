@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.utils.data as data
 
 from src import utils, model_utils
-from src.dataset import PASTIS_Dataset
+from src.dataset import PASTIS_Dataset, AgricultureVisionDataset, KomatsunaDataset
 
 from train_semantic import iterate, overall_performance, save_results, prepare_output
 
@@ -59,6 +59,13 @@ parser.add_argument(
     type=int,
     help="Interval in batches between display of training metrics",
 )
+parser.add_argument(
+    "--dataset_type",
+    default="pastis",
+    type=str,
+    choices=["pastis", "agriculture_vision", "komatsuna"],
+    help="Type of dataset to load",
+)
 
 def main(config):
     fold_sequence = [
@@ -73,6 +80,11 @@ def main(config):
     torch.manual_seed(config.rdm_seed)
     device = torch.device(config.device)
     prepare_output(config)
+
+    if config.dataset_type in ["agriculture_vision", "komatsuna"]:
+        config.input_dim = 3
+    else:
+        config.input_dim = 10
 
     model = model_utils.get_model(config, mode="semantic")
     model = model.to(device)
@@ -89,15 +101,36 @@ def main(config):
             fold = config.fold - 1
 
         # Dataset definition
-        dt_test = PASTIS_Dataset(
-            folder=config.dataset_folder,
-            norm=True,
-            reference_date=config.ref_date,
-            mono_date=config.mono_date,
-            target="semantic",
-            sats=["S2"],
-            folds=test_fold,
-        )
+        if config.dataset_type == "pastis":
+            dt_test = PASTIS_Dataset(
+                folder=config.dataset_folder,
+                norm=True,
+                reference_date=config.ref_date,
+                mono_date=config.mono_date,
+                target="semantic",
+                sats=["S2"],
+                folds=test_fold,
+            )
+        elif config.dataset_type == "agriculture_vision":
+            dt_test = AgricultureVisionDataset(
+                folder=config.dataset_folder,
+                norm=True,
+                reference_date=config.ref_date,
+                mono_date=config.mono_date,
+                target="semantic",
+                sats=None,
+                folds=test_fold,
+            )
+        elif config.dataset_type == "komatsuna":
+            dt_test = KomatsunaDataset(
+                folder=config.dataset_folder,
+                norm=True,
+                reference_date=config.ref_date,
+                mono_date=config.mono_date,
+                target="semantic",
+                sats=None,
+                folds=test_fold,
+            )
         collate_fn = lambda x: utils.pad_collate(x, pad_value=config.pad_value)
         test_loader = data.DataLoader(
             dt_test,
@@ -138,7 +171,7 @@ def main(config):
                 test_metrics["test_IoU"],
             )
         )
-        save_results(fold + 1, test_metrics, conf_mat.cpu().numpy(), config)
+        save_results(fold + 1, test_metrics, conf_mat, config)
 
     if config.fold is None:
         overall_performance(config)

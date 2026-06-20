@@ -10,14 +10,37 @@ import pickle as pkl
 import pprint
 import time
 
+# pyrefly: ignore [missing-import]
 import numpy as np
+# pyrefly: ignore [missing-import]
 import torch
+# pyrefly: ignore [missing-import]
 import torch.nn as nn
+# pyrefly: ignore [missing-import]
 import torch.utils.data as data
-import torchnet as tnt
+class MockAverageValueMeter(object):
+    def __init__(self):
+        self.reset()
+    def reset(self):
+        self.sum = 0
+        self.n = 0
+    def add(self, val, n=1):
+        self.sum += val * n
+        self.n += n
+    def value(self):
+        mean = self.sum / self.n if self.n > 0 else 0
+        return [mean, 0.0]
+
+class MockMeter(object):
+    AverageValueMeter = MockAverageValueMeter
+
+class MockTorchnet(object):
+    meter = MockMeter()
+
+tnt = MockTorchnet()
 
 from src import utils, model_utils
-from src.dataset import PASTIS_Dataset
+from src.dataset import PASTIS_Dataset, AgricultureVisionDataset, KomatsunaDataset
 from src.learning.metrics import confusion_matrix_analysis
 from src.learning.miou import IoU
 from src.learning.weight_init import weight_init
@@ -76,6 +99,13 @@ parser.add_argument(
     dest="cache",
     action="store_true",
     help="If specified, the whole dataset is kept in RAM",
+)
+parser.add_argument(
+    "--dataset_type",
+    default="pastis",
+    type=str,
+    choices=["pastis", "agriculture_vision", "komatsuna"],
+    help="Type of dataset to load",
 )
 # Training parameters
 parser.add_argument("--epochs", default=100, type=int, help="Number of epochs per fold")
@@ -192,6 +222,8 @@ def checkpoint(fold, log, config):
 
 
 def save_results(fold, metrics, conf_mat, config):
+    if torch.is_tensor(conf_mat):
+        conf_mat = conf_mat.cpu().numpy()
     with open(
         os.path.join(config.res_dir, "Fold_{}".format(fold), "test_metrics.json"), "w"
     ) as outfile:
@@ -241,6 +273,11 @@ def main(config):
     prepare_output(config)
     device = torch.device(config.device)
 
+    if config.dataset_type in ["agriculture_vision", "komatsuna"]:
+        config.input_dim = 3
+    else:
+        config.input_dim = 10
+
     fold_sequence = (
         fold_sequence if config.fold is None else [fold_sequence[config.fold - 1]]
     )
@@ -249,18 +286,42 @@ def main(config):
             fold = config.fold - 1
 
         # Dataset definition
-        dt_args = dict(
-            folder=config.dataset_folder,
-            norm=True,
-            reference_date=config.ref_date,
-            mono_date=config.mono_date,
-            target="semantic",
-            sats=["S2"],
-        )
-
-        dt_train = PASTIS_Dataset(**dt_args, folds=train_folds, cache=config.cache)
-        dt_val = PASTIS_Dataset(**dt_args, folds=val_fold, cache=config.cache)
-        dt_test = PASTIS_Dataset(**dt_args, folds=test_fold)
+        if config.dataset_type == "pastis":
+            dt_args = dict(
+                folder=config.dataset_folder,
+                norm=True,
+                reference_date=config.ref_date,
+                mono_date=config.mono_date,
+                target="semantic",
+                sats=["S2"],
+            )
+            dt_train = PASTIS_Dataset(**dt_args, folds=train_folds, cache=config.cache)
+            dt_val = PASTIS_Dataset(**dt_args, folds=val_fold, cache=config.cache)
+            dt_test = PASTIS_Dataset(**dt_args, folds=test_fold)
+        elif config.dataset_type == "agriculture_vision":
+            dt_args = dict(
+                folder=config.dataset_folder,
+                norm=True,
+                reference_date=config.ref_date,
+                mono_date=config.mono_date,
+                target="semantic",
+                sats=None,
+            )
+            dt_train = AgricultureVisionDataset(**dt_args, folds=train_folds)
+            dt_val = AgricultureVisionDataset(**dt_args, folds=val_fold)
+            dt_test = AgricultureVisionDataset(**dt_args, folds=test_fold)
+        elif config.dataset_type == "komatsuna":
+            dt_args = dict(
+                folder=config.dataset_folder,
+                norm=True,
+                reference_date=config.ref_date,
+                mono_date=config.mono_date,
+                target="semantic",
+                sats=None,
+            )
+            dt_train = KomatsunaDataset(**dt_args, folds=train_folds)
+            dt_val = KomatsunaDataset(**dt_args, folds=val_fold)
+            dt_test = KomatsunaDataset(**dt_args, folds=test_fold)
 
         collate_fn = lambda x: utils.pad_collate(x, pad_value=config.pad_value)
         train_loader = data.DataLoader(
@@ -391,7 +452,7 @@ def main(config):
                 test_metrics["test_IoU"],
             )
         )
-        save_results(fold + 1, test_metrics, conf_mat.cpu().numpy(), config)
+        save_results(fold + 1, test_metrics, conf_mat, config)
 
     if config.fold is None:
         overall_performance(config)

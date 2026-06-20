@@ -1,0 +1,49 @@
+{
+    "model": "utae",
+    "encoder_widths": [
+        64,
+        64,
+        64,
+        128
+    ],
+    "decoder_widths": [
+        32,
+        32,
+        64,
+        128
+    ],
+    "out_conv": [
+        32,
+        3
+    ],
+    "str_conv_k": 4,
+    "str_conv_s": 2,
+    "str_conv_p": 1,
+    "agg_mode": "att_group",
+    "encoder_norm": "group",
+    "n_head": 16,
+    "d_model": 256,
+    "d_k": 4,
+    "dataset_folder": "komatsuna-DatasetNinja",
+    "res_dir": "./results",
+    "num_workers": 0,
+    "rdm_seed": 1,
+    "device": "cpu",
+    "display_step": 1,
+    "cache": false,
+    "dataset_type": "komatsuna",
+    "epochs": 1,
+    "batch_size": 2,
+    "lr": 0.001,
+    "mono_date": null,
+    "ref_date": "2018-09-01",
+    "fold": 1,
+    "num_classes": 3,
+    "ignore_index": -1,
+    "pad_value": 0,
+    "padding_mode": "reflect",
+    "val_every": 1,
+    "val_after": 0,
+    "input_dim": 3,
+    "N_params": 1078281
+}

@@ -2,10 +2,16 @@ import json
 import os
 from datetime import datetime
 
+# pyrefly: ignore [missing-import]
 import geopandas as gpd
+# pyrefly: ignore [missing-import]
 import numpy as np
 import pandas as pd
+# pyrefly: ignore [missing-import]
+from PIL import Image
+# pyrefly: ignore [missing-import]
 import torch
+# pyrefly: ignore [missing-import]
 import torch.utils.data as tdata
 
 
@@ -330,3 +336,174 @@ def compute_norm_vals(folder, sat):
 
     with open(os.path.join(folder, "NORM_{}_patch.json".format(sat)), "w") as file:
         file.write(json.dumps(norm_vals, indent=4))
+
+
+class AgricultureVisionDataset(tdata.Dataset):
+    def __init__(self, folder, norm=True, folds=None, reference_date="2018-09-01", target="semantic", sats=None, mono_date=None):
+        super(AgricultureVisionDataset, self).__init__()
+        self.folder = folder
+        self.norm = norm
+        self.target = target
+        
+        # List files and sort them
+        self.files = sorted([f for f in os.listdir(folder) if f.endswith(".jpg")])
+        
+        # Partition 800 files into 5 folds based on index
+        # Fold 1: 0-159, Fold 2: 160-319, Fold 3: 320-479, Fold 4: 480-639, Fold 5: 640-799
+        self.fold_assignments = {}
+        for idx, f in enumerate(self.files):
+            fold = (idx // 160) + 1
+            if fold > 5:
+                fold = 5
+            self.fold_assignments[f] = fold
+            
+        # Select files belonging to selected folds
+        if folds is not None:
+            self.selected_files = [f for f in self.files if self.fold_assignments[f] in folds]
+        else:
+            self.selected_files = self.files
+            
+        self.len = len(self.selected_files)
+        print("AgricultureVisionDataset ready with {} samples from folds {}.".format(self.len, folds))
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, item):
+        filename = self.selected_files[item]
+        path = os.path.join(self.folder, filename)
+        
+        # Load image
+        img = Image.open(path)
+        img_arr = np.array(img).astype(np.float32) / 255.0  # scale to [0, 1]
+        
+        # Standard normalization
+        if self.norm:
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            img_arr = (img_arr - mean) / std
+            
+        # Shape: C x H x W
+        img_arr = img_arr.transpose(2, 0, 1)
+        
+        # Convert to PyTorch tensor and add temporal dimension: T x C x H x W (T = 1)
+        data = torch.from_numpy(img_arr).unsqueeze(0)  # shape (1, 3, 256, 256)
+        
+        # Dummy dates: shape (1,)
+        dates = torch.zeros(1, dtype=torch.float32)
+        
+        # Dummy mask target
+        if self.target == "semantic":
+            # shape (256, 256)
+            target = torch.zeros((img_arr.shape[1], img_arr.shape[2]), dtype=torch.long)
+        else:
+            # For panoptic/instance targets: shape (256, 256, 7)
+            # 7 channels represent: heatmap, instances, zones, size (2 channels), sem_obj, sem_pix
+            target = torch.zeros((img_arr.shape[1], img_arr.shape[2], 7), dtype=torch.float32)
+        
+        return (data, dates), target
+
+
+class KomatsunaDataset(tdata.Dataset):
+    def __init__(self, folder, norm=True, folds=None, reference_date="2018-09-01", target="semantic", sats=None, mono_date=None):
+        super(KomatsunaDataset, self).__init__()
+        self.folder = folder
+        self.norm = norm
+        self.target = target
+        
+        self.images_dir = os.path.join(folder, "train", "images")
+        self.masks_dir = os.path.join(folder, "train", "masks")
+        
+        # List and sort files
+        self.image_files = sorted([f for f in os.listdir(self.images_dir) if f.endswith(".png")])
+        self.mask_files = sorted([f for f in os.listdir(self.masks_dir) if f.endswith(".png")])
+        
+        # Partition 300 files into 5 folds based on index
+        # 60 images per fold
+        self.fold_assignments = {}
+        for idx, f in enumerate(self.image_files):
+            fold = (idx // 60) + 1
+            if fold > 5:
+                fold = 5
+            self.fold_assignments[f] = fold
+            
+        # Select files belonging to selected folds
+        if folds is not None:
+            self.selected_files = [f for f in self.image_files if self.fold_assignments[f] in folds]
+        else:
+            self.selected_files = self.image_files
+            
+        self.len = len(self.selected_files)
+        print("KomatsunaDataset ready with {} samples from folds {}.".format(self.len, folds))
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, item):
+        img_filename = self.selected_files[item]
+        mask_filename = img_filename.replace("rgb_", "label_")
+        
+        img_path = os.path.join(self.images_dir, img_filename)
+        mask_path = os.path.join(self.masks_dir, mask_filename)
+        
+        # Load image and resize to 256x256
+        img = Image.open(img_path).resize((256, 256), Image.BILINEAR)
+        img_arr = np.array(img).astype(np.float32) / 255.0  # scale to [0, 1]
+        
+        # Standard normalization
+        if self.norm:
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            img_arr = (img_arr - mean) / std
+            
+        # Shape: C x H x W
+        img_arr = img_arr.transpose(2, 0, 1)
+        
+        # Convert to PyTorch tensor and add temporal dimension: T x C x H x W (T = 1)
+        data = torch.from_numpy(img_arr).unsqueeze(0)  # shape (1, 3, 256, 256)
+        
+        # Dummy dates: shape (1,)
+        dates = torch.zeros(1, dtype=torch.float32)
+        
+        # Load mask and resize to 256x256 using Nearest Neighbor
+        mask = Image.open(mask_path).resize((256, 256), Image.NEAREST)
+        mask_arr = np.array(mask)  # shape (256, 256, 3)
+        
+        # Convert RGB to class labels:
+        # Green channel > 100 -> class 1
+        # Blue channel > 100 -> class 2
+        # Otherwise -> class 0
+        h, w, _ = mask_arr.shape
+        label_mask = np.zeros((h, w), dtype=np.int64)
+        label_mask[mask_arr[:, :, 1] > 100] = 1
+        label_mask[mask_arr[:, :, 2] > 100] = 2
+        
+        if self.target == "semantic":
+            target = torch.from_numpy(label_mask).long()
+        else:
+            # For panoptic/instance targets: shape (256, 256, 7)
+            # We map target channels accordingly
+            target_tensor = np.zeros((h, w, 7), dtype=np.float32)
+            
+            # heatmap (class 1 and 2 as objects)
+            target_tensor[:, :, 0] = (label_mask > 0).astype(np.float32)
+            
+            # instance labels
+            target_tensor[:, :, 1] = label_mask.astype(np.float32)
+            
+            # zones
+            target_tensor[:, :, 2] = label_mask.astype(np.float32)
+            
+            # size (dummy size 10x10)
+            target_tensor[:, :, 3] = 10.0
+            target_tensor[:, :, 4] = 10.0
+            
+            # sem_obj
+            target_tensor[:, :, 5] = label_mask.astype(np.float32)
+            
+            # sem_pix
+            target_tensor[:, :, 6] = label_mask.astype(np.float32)
+            
+            target = torch.from_numpy(target_tensor).float()
+            
+        return (data, dates), target
