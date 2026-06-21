@@ -84,8 +84,8 @@ def main():
     print(f"Visualizing {num_samples} samples...")
     
     for i in range(num_samples):
-        # Get normalized input for model
-        (x, dates), _ = dataset[i]
+        # Get normalized input for model and target mask
+        (x, dates), target = dataset[i]
         
         # Get raw input for plotting
         (raw_x, _), _ = raw_dataset[i]
@@ -98,27 +98,29 @@ def main():
         # Re-format raw image to numpy RGB [0, 1]
         raw_img = raw_x.squeeze(0).permute(1, 2, 0).numpy()
         
-        # Plot
-        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+        # Plot 3-panel layout (Original, Ground Truth, Predicted Mask)
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
         
-        # Original Image
+        # 1. Original Image
         axes[0].imshow(raw_img)
-        axes[0].set_title(f"Original Image (Sample {i+1})")
+        axes[0].set_title(f"Original Image (Sample {i+1})", fontsize=12, fontweight="bold")
         axes[0].axis("off")
         
-        # Predicted Mask
-        im = axes[1].imshow(pred, cmap=cmap, vmin=vmin, vmax=vmax)
-        axes[1].set_title("Predicted Segmentation Mask")
+        # 2. Ground Truth Mask
+        axes[1].imshow(target.numpy(), cmap=cmap, vmin=vmin, vmax=vmax)
+        axes[1].set_title("Ground Truth Mask", fontsize=12, fontweight="bold")
         axes[1].axis("off")
         
-        # Colorbar
-        plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
+        # 3. Predicted Mask (Argmax Output)
+        im = axes[2].imshow(pred, cmap=cmap, vmin=vmin, vmax=vmax)
+        axes[2].set_title("Predicted Mask (U-TAE)", fontsize=12, fontweight="bold")
+        axes[2].axis("off")
         
         plt.tight_layout()
         output_path = os.path.join(args.output_dir, f"prediction_sample_{i+1}.png")
         plt.savefig(output_path, dpi=150)
         plt.close()
-        print(f"Saved visualization to {output_path}")
+        print(f"Saved 1x3 visualization to {output_path}")
 
 if __name__ == "__main__":
     main()
